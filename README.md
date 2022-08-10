@@ -38,7 +38,7 @@ go test -coverprofile= ./...
 
 ## Current Strategy
 
-Currently, the application will find a list of every pool token A/B are part of and pass an array of arrays of data type Path. Each route is then calculated on rate (getReserves function in pair contract which returns each tokens amount in wei) from token A/B and if length is greater than 1, rate is passed forwards as amount for next pair iteration. Those quotes are then saved and calculated at the end for best rate for each route.
+Currently, the application will find a list of every pool token A/B are part of and pass an array of arrays of data type Path. Each route is then calculated on rate (getReserves function in pair contract which returns each tokens amount in wei) from token A/B and if length is greater than 1, rate is passed forwards as amount for next pair iteration. Those quotes are then saved and calculated at the end for best rate for each route. To save compute time, a json file of v2 pools is used in place of a sub graph call to retreive current pools.
 
 ## Next Steps
 
