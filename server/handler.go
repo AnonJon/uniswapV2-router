@@ -12,7 +12,8 @@ import (
 )
 
 type Handler struct {
-	Client *ethclient.Client
+	Client     *ethclient.Client
+	Controller *controllers.Controller
 }
 
 func NewHandler() *Handler {
@@ -20,7 +21,8 @@ func NewHandler() *Handler {
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
-	h := &Handler{Client: client}
+
+	h := &Handler{Client: client, Controller: controllers.NewController()}
 	if err = rpc.Register(h); err != nil {
 		panic(err)
 	}
@@ -29,7 +31,7 @@ func NewHandler() *Handler {
 }
 
 func (rh *Handler) GetRate(payload *models.Pair, reply *float64) error {
-	rate, err := controllers.QueryRate(payload, rh.Client)
+	rate, err := rh.Controller.QueryRate(payload, rh.Client)
 	if err != nil {
 		return err
 	}
@@ -39,7 +41,7 @@ func (rh *Handler) GetRate(payload *models.Pair, reply *float64) error {
 }
 
 func (rh *Handler) GetQuote(payload *models.Pair, quote *models.Quote) error {
-	bestQuote, err := controllers.CalculateAllRoutes(payload, rh.Client)
+	bestQuote, err := rh.Controller.CalculateAllRoutes(payload, rh.Client)
 	if err != nil {
 		return err
 	}

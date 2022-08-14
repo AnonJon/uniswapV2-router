@@ -1,20 +1,18 @@
 package controllers
 
 import (
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/big"
-	"os"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
-	erc20 "github.com/jongregis/uniswapV2_router/contracts/erc20"
 	factory "github.com/jongregis/uniswapV2_router/contracts/factory"
 	pairContract "github.com/jongregis/uniswapV2_router/contracts/pair"
+	"github.com/jongregis/uniswapV2_router/graphql"
+	gqlModels "github.com/jongregis/uniswapV2_router/graphql/models"
 	"github.com/jongregis/uniswapV2_router/models"
 	"github.com/sirupsen/logrus"
 )
@@ -24,7 +22,15 @@ const (
 	NIL_ADDRESS = "0x0000000000000000000000000000000000000000"
 )
 
-func QueryPair(pair *models.Pair, client *ethclient.Client) (*common.Address, error) {
+type Controller struct {
+	Client *graphql.SubGraph
+}
+
+func NewController() *Controller {
+	return &Controller{Client: graphql.NewSubGraph()}
+}
+
+func (c *Controller) QueryPair(pair *models.Pair, client *ethclient.Client) (*common.Address, error) {
 	exc, err := factory.NewFactoryCaller(common.HexToAddress(FACTORY), client)
 	if err != nil {
 		logrus.Error("Failed to instantiate the UniswapV2 Factory contractfrom address")
@@ -41,9 +47,9 @@ func QueryPair(pair *models.Pair, client *ethclient.Client) (*common.Address, er
 	return &addr, nil
 }
 
-func QueryRate(pair *models.Pair, client *ethclient.Client) (*float64, error) {
+func (c *Controller) QueryRate(pair *models.Pair, client *ethclient.Client) (*float64, error) {
 	var r float64
-	addr, err := QueryPair(pair, client)
+	addr, err := c.QueryPair(pair, client)
 	if err != nil {
 		return nil, err
 	}
@@ -76,28 +82,29 @@ func QueryRate(pair *models.Pair, client *ethclient.Client) (*float64, error) {
 }
 
 // GetAllPools returns the list of pools from the UniswapV2 Factory contract
-func GetAllPools(pair *models.Pair, client *ethclient.Client) ([][]*models.Path, error) {
-	var contracts []*models.PairContract
+func (c *Controller) GetAllPools(pair *models.Pair, client *ethclient.Client) ([][]*models.Path, error) {
+	var contracts []gqlModels.Pair
 	var possibleHops []common.Address
 	var possiblePaths [][]*models.Path
-	exct, err := erc20.NewErc20Caller(pair.TokenB, client)
-	if err != nil {
-		logrus.Error("Failed to instantiate the UniswapV2 Factory contract from address")
-		return nil, err
-	}
-	tokenBsymb, err := exct.Symbol(&bind.CallOpts{})
+	tap, err := c.Client.GetPairs(pair.TokenA.Hex())
 	if err != nil {
 		return nil, err
 	}
+	contracts = append(contracts, tap...)
+	tbp, err := c.Client.GetPairs(pair.TokenB.Hex())
+	if err != nil {
+		return nil, err
+	}
+	contracts = append(contracts, tbp...)
+
+	tokenBsymb := tbp[0].Token0.Symbol
+
 	exc, err := factory.NewFactoryCaller(common.HexToAddress(FACTORY), client)
 	if err != nil {
 		logrus.Error("Failed to instantiate the UniswapV2 Factory contract from address")
 		return nil, err
 	}
-	b, _ := readJson()
-	if err := json.Unmarshal(b, &contracts); err != nil {
-		return nil, err
-	}
+
 	for _, x := range contracts {
 		if x.Token0.Id == pair.TokenA && x.Token1.Id == pair.TokenB || x.Token0.Id == pair.TokenB && x.Token1.Id == pair.TokenA {
 			var w []*models.Path
@@ -142,11 +149,11 @@ func GetAllPools(pair *models.Pair, client *ethclient.Client) ([][]*models.Path,
 }
 
 // CalculateAllRoutes return the list of all possible routes from the UniswapV2 Pair contracts
-func CalculateAllRoutes(pair *models.Pair, client *ethclient.Client) (*models.Quote, error) {
+func (c *Controller) CalculateAllRoutes(pair *models.Pair, client *ethclient.Client) (*models.Quote, error) {
 	var rates [][]float64
-	var quotes []models.Quote
+	var quotes []*models.Quote
 
-	routes, err := GetAllPools(pair, client)
+	routes, err := c.GetAllPools(pair, client)
 	if err != nil {
 		return nil, err
 	}
@@ -179,14 +186,13 @@ func CalculateAllRoutes(pair *models.Pair, client *ethclient.Client) (*models.Qu
 				p := &models.Pair{TokenA: pair.TokenA, TokenB: tokenA, Amount: newRate}
 				quote.Route = append(quote.Route, p)
 				quote.Path = append(quote.Path, y)
-				rate, err := QueryRate(p, client)
+				rate, err := c.QueryRate(p, client)
 				if err != nil {
 					return nil, err
 				}
 				newRate = *rate
 				ratesi = append(ratesi, *rate)
 				if err != nil {
-					log.Println(err)
 					return nil, err
 				}
 				continue
@@ -200,14 +206,14 @@ func CalculateAllRoutes(pair *models.Pair, client *ethclient.Client) (*models.Qu
 				p := &models.Pair{TokenA: tokenB, TokenB: pair.TokenB, Amount: newRate}
 				quote.Route = append(quote.Route, p)
 				quote.Path = append(quote.Path, y)
-				rate, err := QueryRate(p, client)
+				rate, err := c.QueryRate(p, client)
 				if err != nil {
 					return nil, err
 				}
 				newRate = *rate
 				ratesi = append(ratesi, *rate)
 				if err != nil {
-					log.Println(err)
+
 					return nil, err
 				}
 				continue
@@ -215,13 +221,13 @@ func CalculateAllRoutes(pair *models.Pair, client *ethclient.Client) (*models.Qu
 		}
 		rates = append(rates, ratesi)
 		quote.Rate = newRate
-		quotes = append(quotes, quote)
+		quotes = append(quotes, &quote)
 	}
 
 	return GetBestRoute(quotes, rates), nil
 }
 
-func GetBestRoute(quotes []models.Quote, rates [][]float64) *models.Quote {
+func GetBestRoute(quotes []*models.Quote, rates [][]float64) *models.Quote {
 	var best float64
 	var q int
 	for i, x := range quotes {
@@ -235,18 +241,7 @@ func GetBestRoute(quotes []models.Quote, rates [][]float64) *models.Quote {
 		}
 		log.Printf("\n")
 	}
-	return &quotes[q]
-}
-
-func readJson() ([]byte, error) {
-	jsonFile, err := os.Open("v2pools.json")
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	defer jsonFile.Close()
-	byteValue, _ := ioutil.ReadAll(jsonFile)
-	return byteValue, nil
+	return quotes[q]
 }
 
 func WeiToEther(wei *big.Int) *big.Float {

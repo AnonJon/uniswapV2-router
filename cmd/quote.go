@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// quoteCmd represents the quote command
 var quoteCmd = &cobra.Command{
 	Use:   "quote",
 	Short: "Get the best quote for a trade",
