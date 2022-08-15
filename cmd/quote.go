@@ -4,19 +4,20 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jongregis/uniswapV2_router/models"
 	"github.com/spf13/cobra"
 )
 
-// quoteCmd represents the quote command
 var quoteCmd = &cobra.Command{
 	Use:   "quote",
 	Short: "Get the best quote for a trade",
 	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("running quote...")
+		start := time.Now()
 		var reply *models.Quote
 
 		tokenIn, _ := cmd.Flags().GetString("tokenIn")
@@ -41,6 +42,8 @@ var quoteCmd = &cobra.Command{
 		}
 		fmt.Printf("\n\tReturn Rate: %v %v\n", reply.Rate, reply.Path[len(reply.Path)-1].Symbols[1])
 		fmt.Println("")
+		end := time.Now()
+		log.Println("Time elapsed: ", end.Sub(start))
 
 	},
 }

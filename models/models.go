@@ -1,6 +1,9 @@
 package models
 
-import "github.com/ethereum/go-ethereum/common"
+import (
+	"github.com/ethereum/go-ethereum/common"
+	uuid "github.com/satori/go.uuid"
+)
 
 type Pair struct {
 	TokenA common.Address
@@ -28,4 +31,14 @@ type Token struct {
 type Path struct {
 	Address common.Address
 	Symbols []string
+}
+
+type Pool struct {
+	Id            uuid.UUID `gorm:"type:uuid;primary_key;" json:"id,omitempty"`
+	PoolNumber    int
+	Token0        common.Address
+	Token1        common.Address
+	Address       common.Address
+	Token0_Symbol string
+	Token1_Symbol string
 }

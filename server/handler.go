@@ -7,12 +7,17 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/jongregis/uniswapV2_router/controllers"
+	"github.com/jongregis/uniswapV2_router/database"
 	"github.com/jongregis/uniswapV2_router/models"
+	"github.com/jongregis/uniswapV2_router/services"
 	"github.com/jongregis/uniswapV2_router/store"
+	"gorm.io/gorm"
 )
 
 type Handler struct {
-	Client *ethclient.Client
+	Client     *ethclient.Client
+	Controller *controllers.Controller
+	DB         *gorm.DB
 }
 
 func NewHandler() *Handler {
@@ -20,7 +25,20 @@ func NewHandler() *Handler {
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
-	h := &Handler{Client: client}
+	db, err := database.NewDatabase()
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	h := &Handler{
+		Client:     client,
+		Controller: controllers.NewController(db),
+		DB:         db}
+	if os.Getenv("BACKFILL") == "true" {
+		if err := services.Backill(db, client); err != nil {
+			log.Fatalf(err.Error())
+		}
+	}
 	if err = rpc.Register(h); err != nil {
 		panic(err)
 	}
@@ -29,7 +47,7 @@ func NewHandler() *Handler {
 }
 
 func (rh *Handler) GetRate(payload *models.Pair, reply *float64) error {
-	rate, err := controllers.QueryRate(payload, rh.Client)
+	rate, err := rh.Controller.QueryRate(payload, rh.Client)
 	if err != nil {
 		return err
 	}
@@ -39,7 +57,7 @@ func (rh *Handler) GetRate(payload *models.Pair, reply *float64) error {
 }
 
 func (rh *Handler) GetQuote(payload *models.Pair, quote *models.Quote) error {
-	bestQuote, err := controllers.CalculateAllRoutes(payload, rh.Client)
+	bestQuote, err := rh.Controller.CalculateAllRoutes(payload, rh.Client)
 	if err != nil {
 		return err
 	}
