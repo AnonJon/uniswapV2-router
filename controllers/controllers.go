@@ -12,9 +12,9 @@ import (
 	factory "github.com/jongregis/uniswapV2_router/contracts/factory"
 	pairContract "github.com/jongregis/uniswapV2_router/contracts/pair"
 	"github.com/jongregis/uniswapV2_router/graphql"
-	gqlModels "github.com/jongregis/uniswapV2_router/graphql/models"
 	"github.com/jongregis/uniswapV2_router/models"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 const (
@@ -24,10 +24,11 @@ const (
 
 type Controller struct {
 	Client *graphql.SubGraph
+	DB     *gorm.DB
 }
 
-func NewController() *Controller {
-	return &Controller{Client: graphql.NewSubGraph()}
+func NewController(db *gorm.DB) *Controller {
+	return &Controller{Client: graphql.NewSubGraph(), DB: db}
 }
 
 func (c *Controller) QueryPair(pair *models.Pair, client *ethclient.Client) (*common.Address, error) {
@@ -83,63 +84,41 @@ func (c *Controller) QueryRate(pair *models.Pair, client *ethclient.Client) (*fl
 
 // GetAllPools returns the list of pools from the UniswapV2 Factory contract
 func (c *Controller) GetAllPools(pair *models.Pair, client *ethclient.Client) ([][]*models.Path, error) {
-	var contracts []gqlModels.Pair
+	var contracts []models.Pool
 	var possibleHops []common.Address
 	var possiblePaths [][]*models.Path
-	tap, err := c.Client.GetPairs(pair.TokenA.Hex())
-	if err != nil {
+	if err := c.DB.Where("token0 = ?", pair.TokenA).Or("token1 = ?", pair.TokenA).Or("token0 = ?", pair.TokenB).Or("token1 = ?", pair.TokenB).Find(&contracts).Error; err != nil {
 		return nil, err
 	}
-	contracts = append(contracts, tap...)
-	tbp, err := c.Client.GetPairs(pair.TokenB.Hex())
-	if err != nil {
-		return nil, err
-	}
-	contracts = append(contracts, tbp...)
-
-	tokenBsymb := tbp[0].Token0.Symbol
-
-	exc, err := factory.NewFactoryCaller(common.HexToAddress(FACTORY), client)
-	if err != nil {
-		logrus.Error("Failed to instantiate the UniswapV2 Factory contract from address")
-		return nil, err
-	}
-
+	tokenBsymb := contracts[0].Token1_Symbol
 	for _, x := range contracts {
-		if x.Token0.Id == pair.TokenA && x.Token1.Id == pair.TokenB || x.Token0.Id == pair.TokenB && x.Token1.Id == pair.TokenA {
+		if x.Token0 == pair.TokenA && x.Token1 == pair.TokenB || x.Token0 == pair.TokenB && x.Token1 == pair.TokenA {
 			var w []*models.Path
-			w = append(w, &models.Path{Address: x.Id, Symbols: []string{x.Token0.Symbol, x.Token1.Symbol}})
+			w = append(w, &models.Path{Address: x.Address, Symbols: []string{x.Token0_Symbol, x.Token1_Symbol}})
 			possiblePaths = append(possiblePaths, w)
 			continue
 		}
-		if x.Token0.Id == pair.TokenA {
+		if x.Token0 == pair.TokenA {
+			var addr models.Pool
 			var w []*models.Path
-			w = append(w, &models.Path{Address: x.Id, Symbols: []string{x.Token0.Symbol, x.Token1.Symbol}})
-			possibleHops = append(possibleHops, x.Token1.Id)
-			addr, err := exc.GetPair(&bind.CallOpts{}, x.Token1.Id, pair.TokenB)
-			if err != nil {
+			w = append(w, &models.Path{Address: x.Address, Symbols: []string{x.Token0_Symbol, x.Token1_Symbol}})
+			possibleHops = append(possibleHops, x.Token1)
+			if err := c.DB.Where("token0 = ?", x.Token1).Where("token1 = ?", pair.TokenB).Or("token0 = ?", pair.TokenB).Where("token1 = ?", x.Token1).Find(&addr).Error; err != nil {
 				return nil, err
 			}
-			if addr.String() == NIL_ADDRESS {
-				continue
-			}
-			w = append(w, &models.Path{Address: addr, Symbols: []string{x.Token1.Symbol, tokenBsymb}})
+			w = append(w, &models.Path{Address: addr.Address, Symbols: []string{x.Token1_Symbol, tokenBsymb}})
 			possiblePaths = append(possiblePaths, w)
-
 			continue
 		}
-		if x.Token1.Id == pair.TokenA {
+		if x.Token1 == pair.TokenA {
+			var addr models.Pool
 			var w []*models.Path
-			w = append(w, &models.Path{Address: x.Id, Symbols: []string{x.Token1.Symbol, x.Token0.Symbol}})
-			possibleHops = append(possibleHops, x.Token0.Id)
-			addr, err := exc.GetPair(&bind.CallOpts{}, x.Token0.Id, pair.TokenB)
-			if err != nil {
+			w = append(w, &models.Path{Address: x.Address, Symbols: []string{x.Token1_Symbol, x.Token0_Symbol}})
+			possibleHops = append(possibleHops, x.Token0)
+			if err := c.DB.Where("token0 = ?", x.Token0).Where("token1 = ?", pair.TokenB).Or("token0 = ?", pair.TokenB).Where("token1 = ?", x.Token0).Find(&addr).Error; err != nil {
 				return nil, err
 			}
-			if addr.String() == NIL_ADDRESS {
-				continue
-			}
-			w = append(w, &models.Path{Address: addr, Symbols: []string{x.Token0.Symbol, tokenBsymb}})
+			w = append(w, &models.Path{Address: addr.Address, Symbols: []string{x.Token0_Symbol, tokenBsymb}})
 			possiblePaths = append(possiblePaths, w)
 			continue
 		}

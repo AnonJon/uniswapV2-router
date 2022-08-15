@@ -7,13 +7,17 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/jongregis/uniswapV2_router/controllers"
+	"github.com/jongregis/uniswapV2_router/database"
 	"github.com/jongregis/uniswapV2_router/models"
+	"github.com/jongregis/uniswapV2_router/services"
 	"github.com/jongregis/uniswapV2_router/store"
+	"gorm.io/gorm"
 )
 
 type Handler struct {
 	Client     *ethclient.Client
 	Controller *controllers.Controller
+	DB         *gorm.DB
 }
 
 func NewHandler() *Handler {
@@ -21,8 +25,20 @@ func NewHandler() *Handler {
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
+	db, err := database.NewDatabase()
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
 
-	h := &Handler{Client: client, Controller: controllers.NewController()}
+	h := &Handler{
+		Client:     client,
+		Controller: controllers.NewController(db),
+		DB:         db}
+	if os.Getenv("BACKFILL") == "true" {
+		if err := services.Backill(db, client); err != nil {
+			log.Fatalf(err.Error())
+		}
+	}
 	if err = rpc.Register(h); err != nil {
 		panic(err)
 	}
